@@ -160,10 +160,10 @@ creating_flame_thread(void*)
 	/* Flame updating */
 	while(_appExit == 0)
 	{
-		sleep_millisec(1);
+		sleep_millisec(5);
 		
 		uCurrMillis = get_millisec();
-		if(FLAME_RATE_MILLIS >= (get_millisec() - uPrevMillis))
+		if(FLAME_RATE_MILLIS >= (uCurrMillis - uPrevMillis))
 			continue;
 			
 		uPrevMillis = uCurrMillis;
