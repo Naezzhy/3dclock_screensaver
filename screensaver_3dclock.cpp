@@ -246,7 +246,7 @@ creating_flame_thread(void*)
 			}
 		}
 		
-		_rb.write(flameBuff, FLAME_WIDTH*FLAME_HEIGHT*3);
+		_rb.write(flameBuff, sizeof(flameBuff) );
 		
 	}
 
