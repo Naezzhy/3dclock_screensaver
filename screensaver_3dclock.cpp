@@ -81,10 +81,10 @@ struct	sSymbol
 
 uint32_t	const	ZERO_OFFSET = '0';
 uint32_t	const	NUM_OF_DIGIT = 10;
-uint32_t	const	FONT_HEIGHT = 256;
+uint32_t	const	FONT_HEIGHT = 128;
 
-uint32_t	const	BITMAP_WIDTH = 512;
-uint32_t	const	BITMAP_HEIGHT = 512;
+uint32_t	const	BITMAP_WIDTH = 256;
+uint32_t	const	BITMAP_HEIGHT = 256;
 
 uint32_t	const	FLAME_WIDTH = 1024;
 uint32_t	const	FLAME_HEIGHT = 512;
@@ -160,7 +160,7 @@ creating_flame_thread(void*)
 	/* Flame updating */
 	while(_appExit == 0)
 	{
-		sleep_millisec(10);
+		sleep_millisec(5);
 		
 		uCurrMillis = get_millisec();
 		if(FLAME_RATE_MILLIS >= (uCurrMillis - uPrevMillis))
@@ -219,7 +219,7 @@ creating_flame_thread(void*)
 			}
 		}
 		
-		for(i=FLAME_WIDTH-1; i > 1; i--)
+		for(i=FLAME_WIDTH-2; i > 1; i--)
 		{
 			for(j=1; j<FLAME_HEIGHT-1; j++)
 			{
@@ -420,10 +420,10 @@ draw_gliph_quads(const char *szTxt)
 void
 draw_time_edge_texture(const char *szTime, GLuint uTex)
 {
-	uint32_t	const	uBorderWidth = 20;
-	uint32_t	const	uLineWidth = 3;
-	uint32_t	const	uCathet = 90;
-	float		const	fLineConst = 0.8;
+	uint32_t	const	uBorderWidth = 12;
+	uint32_t	const	uLineWidth = 2;
+	uint32_t	const	uCathet = 50;
+	float		const	fLineConst = 0.7;
 	
 	glViewport(0, 0, BITMAP_WIDTH, BITMAP_HEIGHT);
 	glMatrixMode(GL_PROJECTION);
@@ -722,8 +722,9 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 	/* Drawing flame quad */
 	glBindTexture(GL_TEXTURE_RECTANGLE, uFlameTex);
 	
-	if(_rb.read(flameBuff, sizeof(flameBuff), &uDataSize))
+	if(1 == _rb.read(flameBuff, sizeof(flameBuff), &uDataSize))
 	{
+//		printf("%d\r\n", uDataSize);
 		glTexImage2D(GL_TEXTURE_RECTANGLE, 0, 3, FLAME_WIDTH, FLAME_HEIGHT, 
 							 0, GL_RGB, GL_UNSIGNED_BYTE, flameBuff);
 	}
@@ -1093,13 +1094,13 @@ int main(int argc, char** argv)
 
 	while (0 < window.update_window() && _appExit == 0)
 	{
-		sleep_millisec(5);
+		sleep_millisec(1);
 	}
 	
 	window.destroy_window();
 	_appExit = 1;
 
-	if(ptFlame) 
+	if(ptFlame)
 		pthread_join(ptFlame, NULL);
 	
 	pthread_attr_destroy(&ptAttr);
