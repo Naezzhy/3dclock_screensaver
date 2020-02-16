@@ -160,7 +160,7 @@ creating_flame_thread(void*)
 	/* Flame updating */
 	while(_appExit == 0)
 	{
-		sleep_millisec(5);
+		sleep_millisec(10);
 		
 		uCurrMillis = get_millisec();
 		if(FLAME_RATE_MILLIS >= (uCurrMillis - uPrevMillis))
@@ -1093,7 +1093,7 @@ int main(int argc, char** argv)
 
 	while (0 < window.update_window() && _appExit == 0)
 	{
-		sleep_millisec(1);
+		sleep_millisec(5);
 	}
 	
 	window.destroy_window();
