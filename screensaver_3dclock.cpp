@@ -57,6 +57,7 @@
 #include FT_FREETYPE_H
 
 #include "utils/time_func.h"
+#include "buffers/discrete_ring_buffer.h"
 #include "graphic/glxwindow.h"
 
 
@@ -96,8 +97,8 @@ char		const	FONT_NAME[]="./fonts/Roboto-Bold.ttf";
 
 
 sSymbol				_symbol[NUM_OF_DIGIT];
-rgb					_scrBuff [FLAME_WIDTH][FLAME_HEIGHT];
 uint8_t				_appExit = 0;
+cDiscreteRingBuffer	_rb;
 
 
 
@@ -136,9 +137,10 @@ creating_flame_thread(void*)
 	uint32_t		uIndex;
 	uint32_t		i,j;
 	uint8_t			tmp, color;
-	rgb				palit[256] = {0};
+	rgb			palit[256] = {0};
 	uint8_t			palBuff [FLAME_WIDTH][FLAME_HEIGHT];
-	uint64_t		uPrevMillis = get_millisec();;
+	rgb			flameBuff [FLAME_WIDTH][FLAME_HEIGHT];
+	uint64_t		uPrevMillis = get_millisec();
 	uint64_t		uCurrMillis;
 
 	/* Filling flame palit */
@@ -240,9 +242,11 @@ creating_flame_thread(void*)
 		{
 			for(j=0; j<FLAME_HEIGHT; j++)
 			{
-				_scrBuff[i][j]=palit[palBuff[i][j]];
+				flameBuff[i][j]=palit[palBuff[i][j]];
 			}
 		}
+		
+		_rb.write(flameBuff, FLAME_WIDTH*FLAME_HEIGHT*3);
 		
 	}
 
@@ -566,6 +570,8 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 	float		static	dY[] = {0.2F,0.2f,0.2f};
 	uint32_t	static	uIndex;
 	GLuint		static	uSecTex, uMinTex, uHourTex, uFlameTex;
+	uint8_t		static	flameBuff[FLAME_WIDTH*FLAME_HEIGHT*3];
+	size_t		static	uDataSize;
 	
 	uint64_t		static		uPrevMillis;
 	uint64_t		static		uCurrMillis;
@@ -715,8 +721,12 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 
 	/* Drawing flame quad */
 	glBindTexture(GL_TEXTURE_RECTANGLE, uFlameTex);
-	glTexImage2D(GL_TEXTURE_RECTANGLE, 0, 3, FLAME_WIDTH, FLAME_HEIGHT, 
-						 0, GL_RGB, GL_UNSIGNED_BYTE, _scrBuff);
+	
+	if(_rb.read(flameBuff, sizeof(flameBuff), &uDataSize))
+	{
+		glTexImage2D(GL_TEXTURE_RECTANGLE, 0, 3, FLAME_WIDTH, FLAME_HEIGHT, 
+							 0, GL_RGB, GL_UNSIGNED_BYTE, flameBuff);
+	}
 	
 	glDisable(GL_LIGHTING);
 	
@@ -1067,6 +1077,8 @@ int main(int argc, char** argv)
 	cGLXWindow				window;
 	pthread_attr_t			ptAttr;
 	pthread_t				ptFlame = 0;
+	
+	_rb.create(FLAME_WIDTH*FLAME_HEIGHT*3, 8);
 
 	window.create_window(800, 600, "3dclock", redraw_window);
 	window.init_events_callback(events_update);
