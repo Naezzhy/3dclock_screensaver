@@ -1099,7 +1099,7 @@ int main(int argc, char** argv)
 	window.destroy_window();
 	_appExit = 1;
 
-	if(ptFlame)
+	if(ptFlame) 
 		pthread_join(ptFlame, NULL);
 	
 	pthread_attr_destroy(&ptAttr);
