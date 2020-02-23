@@ -207,7 +207,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 	int32_t			iCountFB;
 	int32_t			iMajorVer;
 	int32_t			iMinorVer;
-	GLXFBConfig*	fbc;
+	GLXFBConfig*	fbc = NULL;
 	int32_t			iBestFBIndex = -1;
 	int32_t			iBestSamplesNum = -1;
 	int32_t			iSampBuf;
@@ -387,29 +387,17 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 		/* Chosen best visual ID from frame buffer object */	
 		for (i=0; i<iCountFB; ++i)
 		{
-			vi = glXGetVisualFromFBConfig( display, fbc[i] );
-			if ( vi )
+			glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLE_BUFFERS, &iSampBuf );
+			glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLES, &iSamplesNum  );
+
+			if ( iBestFBIndex < 0 || ((iSampBuf > 0) && (iSamplesNum > iBestSamplesNum) ) )
 			{
-				glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLE_BUFFERS, &iSampBuf );
-				glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLES, &iSamplesNum  );
-
-				if ( iBestFBIndex < 0 || ((iSampBuf > 0) && (iSamplesNum > iBestSamplesNum) ) )
-				{
-					iBestFBIndex = i;
-					iBestSamplesNum = iSamplesNum;
-				}
-				
-
+				iBestFBIndex = i;
+				iBestSamplesNum = iSamplesNum;
 			}
-			XFree( vi );
 		}
 
 		bestFBConf = fbc[iBestFBIndex];
-
-		XFree( fbc );
-		
-		fprintf( stderr, "Chosen visual ID = 0x%lu, with samples number = %d\n\r", 
-				vi->visualid,  iBestSamplesNum);
 
 		vi = glXGetVisualFromFBConfig( display, bestFBConf );
 		if( vi == NULL )
@@ -417,6 +405,9 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 			fprintf(stderr, "Getting visual ID from FBConfig error\n");
 			goto ERRORS;
 		}
+		
+//		fprintf( stderr, "Chosen visual ID = 0x%lu, with samples number = %d\n\r", 
+//				vi->visualid,  iBestSamplesNum);
 		
 		cmap = XCreateColormap(display, rootWindow, vi->visual, AllocNone);
 		if( cmap == 0 )
@@ -489,6 +480,9 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 //	XGrabKeyboard(display, window, True, GrabModeAsync, GrabModeAsync, CurrentTime);
 //  XGrabPointer(display, window, True, ButtonPressMask, 
 //	GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
+	
+	if(fbc)
+		XFree( fbc );
 	
 	/* Set all flags in first running redraw */
 	redraw_cb(&ws, VIEWPORT_INIT_FLAG | VIEWPORT_RESIZE_FLAG);
