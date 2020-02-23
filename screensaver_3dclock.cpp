@@ -78,11 +78,6 @@ uint32_t	const	RBUFFER_LEN = 5;
 float		const	CUBE_ROTATION_SPEED = 0.006;
 
 char		const	FONT_NAME[]="./fonts/Roboto-Bold.ttf";
-char		const	*FRAGMENT_PROGRAM =
-"uniform vec4 color;\n" 
-"void main() {\n" 
-" gl_FragColor = color;\n" 
-"}\n";
 
 
 
@@ -790,7 +785,7 @@ redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
 	/* Rotations calculation */
 	_rv.uCurrMillis = get_millisec();
 	_rv.fDelta = CUBE_ROTATION_SPEED * float(_rv.uCurrMillis - _rv.uPrevMillis);
-//	printf("%ld\r\n", uCurrMillis - uPrevMillis);
+//	printf("%ld\n", uCurrMillis - uPrevMillis);
 	_rv.uPrevMillis = _rv.uCurrMillis;
 	
 	for(i=0; i<3; i++)

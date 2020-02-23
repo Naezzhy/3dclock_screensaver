@@ -58,7 +58,7 @@ print_gl_error(void)
 	
 	errCode = glGetError();
 	if(errCode != GL_NO_ERROR) 
-		fprintf(stderr, "OpenGl error - %s\r\n", gluErrorString(errCode) ); 
+		fprintf(stderr, "OpenGl error - %s\n", gluErrorString(errCode) ); 
 }
 
 
@@ -217,7 +217,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 	
 	if(!param)
 	{
-		fprintf(stderr, "Invalid input\r\n");
+		fprintf(stderr, "Invalid input\n");
 		return -1;
 	}
 	
@@ -253,7 +253,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 	
 	if(param->callback_redraw == NULL)
 	{
-		fprintf(stderr, "Invalid redraw callback function\r\n");
+		fprintf(stderr, "Invalid redraw callback function\n");
 		return -1;
 	}
 	
@@ -268,7 +268,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 	{
 		if (1 > get_screen_resolution(&param->uWidth, &param->uHeight) )
 		{
-			fprintf(stderr, "Could not get screen resolution\r\n");
+			fprintf(stderr, "Could not get screen resolution\n");
 			return -1;
 		}
 	}
@@ -288,7 +288,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 	display = XOpenDisplay( NULL );
 	if ( display == NULL )
 	{
-		fprintf(stderr, "Cannot open display\r\n");
+		fprintf(stderr, "Cannot open display\n");
 		return -1;
 	}
 
@@ -297,39 +297,39 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 	rootWindow = DefaultRootWindow(display);
 	if ( rootWindow == 0 )
 	{
-		fprintf(stderr, "Cannot get root window XID\r\n");
+		fprintf(stderr, "Cannot get root window XID\n");
 		goto ERRORS;
 	}
 	
 	/* FBConfigs were added in GLX version 1.3. */
 	if ( !glXQueryVersion( display, &iMajorVer, &iMinorVer ) )
 	{
-		fprintf(stderr, "glXQueryVersion error\r\n");
+		fprintf(stderr, "glXQueryVersion error\n");
 		goto ERRORS;
 	} 
 
 	/* Invalid GL version */
 	if( iMajorVer == 0 )
 	{
-		fprintf(stderr, "Invalid GLX version\r\n");
+		fprintf(stderr, "Invalid GLX version\n");
 		goto ERRORS;
 	}
 	/* OpenGL version < 1.3, old style context initializing */
 	else if(( iMajorVer == 1 ) && ( iMinorVer < 3 ))
 	{
-		fprintf(stderr, "OpenGL version %d.%d < 1.3, old style context initializing\r\n", iMajorVer, iMinorVer);
+		fprintf(stderr, "OpenGL version %d.%d < 1.3, old style context initializing\n", iMajorVer, iMinorVer);
 		
 		vi = glXChooseVisual(display, 0, classicAttr);
 		if( vi == NULL )
 		{
-			fprintf(stderr, "No appropriate visual found\r\n");
+			fprintf(stderr, "No appropriate visual found\n");
 			goto ERRORS;
 		}
 		
 		cmap = XCreateColormap(display, rootWindow, vi->visual, AllocNone);
 		if( cmap == 0 )
 		{
-			fprintf(stderr, "Cannot create colormap\r\n");
+			fprintf(stderr, "Cannot create colormap\n");
 			goto ERRORS;
 		}
 
@@ -354,7 +354,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 
 		if(window == 0)
 		{
-			fprintf(stderr, "Cannot create window\r\n");
+			fprintf(stderr, "Cannot create window\n");
 			goto ERRORS;
 		}
 
@@ -369,7 +369,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 		glc = glXCreateContext(display, vi, NULL, GL_TRUE);
 		if(glc == NULL)
 		{
-			fprintf(stderr, "Cannot create OpenGL context\r\n");
+			fprintf(stderr, "Cannot create OpenGL context\n");
 			goto ERRORS;
 		}
 
@@ -414,14 +414,14 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 		vi = glXGetVisualFromFBConfig( display, bestFBConf );
 		if( vi == NULL )
 		{
-			fprintf(stderr, "Getting visual ID from FBConfig error\r\n");
+			fprintf(stderr, "Getting visual ID from FBConfig error\n");
 			goto ERRORS;
 		}
 		
 		cmap = XCreateColormap(display, rootWindow, vi->visual, AllocNone);
 		if( cmap == 0 )
 		{
-			fprintf(stderr, "Cannot create colormap\r\n");
+			fprintf(stderr, "Cannot create colormap\n");
 			goto ERRORS;
 		}
 
@@ -444,7 +444,7 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 
 		if(window == 0)
 		{
-			fprintf(stderr, "Cannot create window\r\n");
+			fprintf(stderr, "Cannot create window\n");
 			goto ERRORS;
 		}
 
@@ -464,14 +464,14 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 
 		if (glXCreateContextAttribs == NULL)
 		{
-			fprintf(stderr, "glXCreateContextAttribs is not supported\r\n");
+			fprintf(stderr, "glXCreateContextAttribs is not supported\n");
 			goto ERRORS;
 		}
 
 		glc = glXCreateContextAttribs( display, bestFBConf, 0, True, modernAttr );
 		if(glc == NULL)
 		{
-			fprintf(stderr, "Cannot create OpenGL context\r\n");
+			fprintf(stderr, "Cannot create OpenGL context\n");
 			goto ERRORS;
 		}
 
@@ -652,7 +652,7 @@ get_screen_resolution(uint32_t* puWidth, uint32_t* puHeight)
 {
 	if(puWidth == NULL || puHeight == NULL)
 	{
-		fprintf(stderr, "Invalid input\r\n");
+		fprintf(stderr, "Invalid input\n");
 		return -1;
 	}
 	Display	*display = NULL;
@@ -714,7 +714,7 @@ set_window_fullscreen_popup()
 	
 	if (1 > get_screen_resolution(&uWidth, &uHeight) )
 	{
-		fprintf(stderr, "Could not get screen resolution\r\n");
+		fprintf(stderr, "Could not get screen resolution\n");
 		return -1;
 	}
 								 
@@ -765,13 +765,13 @@ unset_window_fullscreen_popup(uint32_t uWidth, uint32_t uHeight)
 	{
 		if (1 > get_screen_resolution(&uWidth, &uHeight) )
 		{
-			fprintf(stderr, "Could not get screen resolution\r\n");
+			fprintf(stderr, "Could not get screen resolution\n");
 			return -1;
 		}
 	}
 	else if(uWidth == 0 || uHeight == 0)
 	{
-		fprintf(stderr, "Invalid screen dimentions\r\n");
+		fprintf(stderr, "Invalid screen dimentions\n");
 		return -1;
 	}
 	
@@ -814,13 +814,13 @@ set_window_size(uint32_t uWidth, uint32_t uHeight)
 	{
 		if (1 > get_screen_resolution(&uWidth, &uHeight) )
 		{
-			fprintf(stderr, "Could not get screen resolution\r\n");
+			fprintf(stderr, "Could not get screen resolution\n");
 			return -1;
 		}
 	}
 	else if(uWidth == 0 || uHeight == 0)
 	{
-		fprintf(stderr, "Invalid screen dimentions\r\n");
+		fprintf(stderr, "Invalid screen dimentions\n");
 		return -1;
 	}
 	
