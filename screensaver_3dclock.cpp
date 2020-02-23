@@ -170,12 +170,12 @@ creating_flame_thread(void*)
 {
 	uint32_t		uIndex;
 	uint32_t		i,j;
-	uint8_t			tmp, color;
-	rgb				palit[256] = {0};
-	uint8_t			palBuff [FLAME_WIDTH*FLAME_HEIGHT];
-	rgb				flameBuff [FLAME_HEIGHT*FLAME_WIDTH];
-	uint8_t			pseudoRandArray[FLAME_WIDTH*FLAME_HEIGHT+1];
-	size_t			uRandIndex = 0;
+	uint8_t		tmp, color;
+	rgb		palit[256] = {0};
+	uint8_t		palBuff [FLAME_WIDTH*FLAME_HEIGHT];
+	rgb		flameBuff [FLAME_HEIGHT*FLAME_WIDTH];
+	uint8_t		pseudoRandArray[FLAME_WIDTH*FLAME_HEIGHT+1];
+	size_t		uRandIndex = 0;
 	
 	uint64_t		uPrevMillis = get_millisec();
 	uint64_t		uCurrMillis;
