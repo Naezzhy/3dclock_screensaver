@@ -211,7 +211,7 @@ int32_t cDiscreteRingBuffer::write(const void *buffer, size_t dataSize)
 		uTail = 0;
 		uLen = 0;
 		memset(pSizeBuffer, 0, sizeof(pSizeBuffer));
-//		fprintf(stderr, "********** Jump over tail *************\r\n");
+		fprintf(stderr, "********** Jump over tail *************\r\n");
 	}
 //	/* Jump over tail */
 //	if ((uHead == uTail) && (0 != pSizeBuffer[uHead]))

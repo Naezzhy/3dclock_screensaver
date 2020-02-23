@@ -51,48 +51,35 @@
 #include <GL/glext.h>
 
 
-inline static void 
-print_gl_error(void) 
-{ 
-	GLenum errCode; 
-	
-	errCode = glGetError();
-	if(errCode != GL_NO_ERROR) 
-		fprintf(stderr, "OpenGl error - %s\r\n", gluErrorString(errCode) ); 
-}
 
 
 class cGLXWindow
 {
 public:
 	
+	struct	sXMouseCursPos
+	{
+		int32_t	iRootX;
+		int32_t	iRootY;
+		int32_t	iWinX;
+		int32_t	iWinY;
+	};
+	
 	struct	sWindowState
 	{
 		uint32_t uWidth; 
 		uint32_t uHeight;
-		int32_t	iMouseRootX;
-		int32_t	iMouseRootY;
-		int32_t	iMouseWinX;
-		int32_t	iMouseWinY;
+		uint8_t initFlag;
+		uint8_t resizeFlag;
+		uint8_t destroyFlag;
 	};
-	
-	struct sWinGLXParam
-	{
-		uint32_t uWidth;
-		uint32_t uHeight;
-		int32_t iMajorGLVer;
-		int32_t iMinorGLVer;
-		void(*callback_redraw)(sWindowState *ws, uint32_t stateFlags);
-		void(*callback_event)(XEvent* event);
-	};
-	
-	uint32_t	static const	VIEWPORT_INIT_FLAG = 1<<1;
-	uint32_t	static const	VIEWPORT_RESIZE_FLAG = 1<<2;
-	uint32_t	static const	VIEWPORT_DESTROY_FLAG = 1<<3;
 	
 				cGLXWindow();
 	virtual		~cGLXWindow();
-	int32_t		create_window(sWinGLXParam *param, const char *szWinCaption);
+	int32_t		create_window(	uint32_t uWidth, 
+								uint32_t uHeight, 
+								const char *szWinCaption,
+								void (*)(sWindowState*, sXMouseCursPos*));
 	int32_t		update_window(void);
 	void		destroy_window();
 	int32_t		set_window_size(uint32_t uWidth, uint32_t uHeight);
@@ -102,10 +89,7 @@ public:
 	void		show_cursor(void);
 	Window		get_window_XID(void);
 	Display*	get_window_display();
-	int32_t		get_glx_extensions_string(const char **szExtList);
-	int32_t		get_gl_extensions_string(const char **szExtList);
-	int32_t		check_gl_extension(const char *szExtName);
-	int32_t		check_glx_extension(const char *szExtName);
+	int32_t		init_events_callback(void (*)(XEvent* event));
 	
 private:
 	
@@ -113,14 +97,13 @@ private:
 	int32_t		set_fullscreen(void);
 	
 	/* Callback for class returns width, height, init and resize flag */
-	void	(*redraw_cb)(sWindowState *ws, uint32_t stateFlags);
+	void	(*redraw_cb)(sWindowState *ws, sXMouseCursPos *mousePos);
 	void	(*events_cb)(XEvent* event);
 	
 	Display					*display;
 	Window					window;
 	XEvent					event;
-	int32_t					screen;
-    uint32_t				uMask;
+	int						screen;
 	
 	XVisualInfo				*vi;
 	Colormap				cmap;
@@ -130,9 +113,11 @@ private:
 	Atom					wmDelete;
 	
 	sWindowState			ws;
+
+	/* For mouse pointer */
+	sXMouseCursPos			mousePos;
 	Window					returnedWindow;
-	
-	PFNGLXCREATECONTEXTATTRIBSARBPROC glXCreateContextAttribs;
+    uint32_t				uMask;
 	
 };
 
@@ -142,7 +127,6 @@ cGLXWindow()
 {
 	display = NULL;
 	window = 0;
-	screen = 0;
 	cmap = 0;
 	vi = NULL;
 	glc = NULL;
@@ -152,17 +136,22 @@ cGLXWindow()
 	
 	redraw_cb = NULL;
 	events_cb = NULL;
-	
-	glXCreateContextAttribs = NULL;
 }
 
 
 cGLXWindow::
 ~cGLXWindow()
 {
-//	destroy_window();
+	destroy_window();
 }
 
+
+int32_t 
+cGLXWindow::init_events_callback( void(*callback_func)(XEvent* event) )
+{
+	events_cb = (void (*)(XEvent*))callback_func;
+	return 1;
+}
 
 /*
  * Deinitialize window
@@ -172,7 +161,10 @@ destroy_window()
 {
 	if(glc)
 	{
-		redraw_cb(&ws, VIEWPORT_DESTROY_FLAG);
+		ws.initFlag = 0;
+		ws.resizeFlag = 0;
+		ws.destroyFlag = 1;
+		redraw_cb(&ws, &mousePos);
 		
 		if(!glXMakeCurrent(display, None, NULL))
 		{
@@ -181,6 +173,7 @@ destroy_window()
 		
 		glXDestroyContext(display, glc);
 		glc = NULL;
+		fprintf(stderr, "Destroy OK!\n\r");
 	}
    	
 	if(display != NULL && window != 0)
@@ -192,85 +185,46 @@ destroy_window()
 	}
 }
 
-
 /*
  *	Create window with uWidth and uHeight dimentions
- *	from sWinGLXParam struct
  *  If uWidth and uHeight equal zero then window
  *  dimentions sets to fullscreen
  *  Returns 1 on success or -1 on fail
  */
 int32_t cGLXWindow::
-create_window(sWinGLXParam *param, const char *szWinCaption)
+create_window(uint32_t uWidth, uint32_t uHeight, const char *szWinCaption, 
+			  void(*callback_func)(sWindowState *ws, sXMouseCursPos *mousePos))
 {
-	Window			rootWindow = 0;
-	int32_t			iCountFB;
-	int32_t			iMajorVer;
-	int32_t			iMinorVer;
-	GLXFBConfig*	fbc;
-	int32_t			iBestFBIndex = -1;
-	int32_t			iBestSamplesNum = -1;
-	int32_t			iSampBuf;
-	int32_t			iSamplesNum;
-	int32_t			i;
-	GLXFBConfig		bestFBConf;
-	
-	if(!param)
-	{
-		fprintf(stderr, "Invalid input\r\n");
-		return -1;
-	}
-	
-	GLint classicAttr[] = 
-	{
+	GLint att[] = {
 		GLX_RGBA, 
-		GLX_DOUBLEBUFFER,	True, 
+		GLX_DOUBLEBUFFER, 
 		GLX_DEPTH_SIZE,		24, 
-		None									//zero indicates the end of the array
+		GLX_SAMPLE_BUFFERS, 1,
+		GLX_SAMPLES,		4,
+		None
 	};
-	GLint baseAttr[] = 
+	Window		rootWindow = 0;
+	
+	if(callback_func == NULL)
 	{
-		GLX_X_RENDERABLE    , True,
-		GLX_DRAWABLE_TYPE   , GLX_WINDOW_BIT,
-		GLX_RENDER_TYPE     , GLX_RGBA_BIT,
-		GLX_X_VISUAL_TYPE   , GLX_TRUE_COLOR,
-		GLX_RED_SIZE        , 8,
-		GLX_GREEN_SIZE      , 8,
-		GLX_BLUE_SIZE       , 8,
-		GLX_ALPHA_SIZE      , 8,
-		GLX_DEPTH_SIZE      , 24,
-		GLX_STENCIL_SIZE    , 8,
-//		GLX_SAMPLE_BUFFERS_ARB  , True,         // <-- MSAA
-//		GLX_SAMPLES_ARB         , 4,            // <-- MSAA
-		None									//zero indicates the end of the array
-	};
-	
-	GLint modernAttr[10] = {0};
-	i = 0;
-	modernAttr[++i] = GLX_CONTEXT_MAJOR_VERSION_ARB; modernAttr[++i] = param->iMajorGLVer;
-	modernAttr[++i] = GLX_CONTEXT_MINOR_VERSION_ARB; modernAttr[++i] = param->iMinorGLVer; 
-	
-	
-	if(param->callback_redraw == NULL)
-	{
-		fprintf(stderr, "Invalid redraw callback function\r\n");
+		fprintf(stderr, "Invalid callback function\r\n");
 		return -1;
 	}
 	
-	redraw_cb = (void (*)(sWindowState*, uint32_t))param->callback_redraw;
+	redraw_cb = (void (*)(sWindowState*, sXMouseCursPos*))callback_func;
 	
-	if(NULL != param->callback_event)
+	if(uWidth == 0 && uHeight == 0)
 	{
-		events_cb = (void (*)(XEvent*))param->callback_event;
-	}
-	
-	if(param->uWidth == 0 || param->uHeight == 0)
-	{
-		if (1 > get_screen_resolution(&param->uWidth, &param->uHeight) )
+		if (1 > get_screen_resolution(&uWidth, &uHeight) )
 		{
 			fprintf(stderr, "Could not get screen resolution\r\n");
 			return -1;
 		}
+	}
+	else if(uWidth == 0 || uHeight == 0)
+	{
+		fprintf(stderr, "Invalid screen dimentions\r\n");
+		return -1;
 	}
 	
 	if(display != NULL || window != 0)
@@ -281,8 +235,8 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 		window = 0;
 	}
 	
-	ws.uWidth = param->uWidth;
-	ws.uHeight = param->uHeight;
+	ws.uWidth = uWidth;
+	ws.uHeight = uHeight;
 	
 /****************************** Begin init  ***********************************/	
 	display = XOpenDisplay( NULL );
@@ -301,197 +255,81 @@ create_window(sWinGLXParam *param, const char *szWinCaption)
 		goto ERRORS;
 	}
 	
-	/* FBConfigs were added in GLX version 1.3. */
-	if ( !glXQueryVersion( display, &iMajorVer, &iMinorVer ) )
+	vi = glXChooseVisual(display, 0, att);
+	if( vi == NULL )
 	{
-		fprintf(stderr, "glXQueryVersion error\r\n");
+		fprintf(stderr, "No appropriate visual found\r\n");
 		goto ERRORS;
-	} 
-
-	/* Invalid GL version */
-	if( iMajorVer == 0 )
-	{
-		fprintf(stderr, "Invalid GLX version\r\n");
-		goto ERRORS;
-	}
-	/* OpenGL version < 1.3, old style context initializing */
-	else if(( iMajorVer == 1 ) && ( iMinorVer < 3 ))
-	{
-		fprintf(stderr, "OpenGL version %d.%d < 1.3, old style context initializing\r\n", iMajorVer, iMinorVer);
-		
-		vi = glXChooseVisual(display, 0, classicAttr);
-		if( vi == NULL )
-		{
-			fprintf(stderr, "No appropriate visual found\r\n");
-			goto ERRORS;
-		}
-		
-		cmap = XCreateColormap(display, rootWindow, vi->visual, AllocNone);
-		if( cmap == 0 )
-		{
-			fprintf(stderr, "Cannot create colormap\r\n");
-			goto ERRORS;
-		}
-
-		swa.colormap = cmap;
-		swa.event_mask = ExposureMask | KeyPressMask | StructureNotifyMask | ButtonPressMask;
-
-		window = XCreateWindow
-		(
-			display,
-			rootWindow,
-			0,
-			0,
-			param->uWidth,
-			param->uHeight,
-			0,
-			vi->depth,
-			InputOutput,
-			vi->visual,
-			CWBackPixmap | CWBorderPixel | CWColormap | CWEventMask,
-			&swa
-		);
-
-		if(window == 0)
-		{
-			fprintf(stderr, "Cannot create window\r\n");
-			goto ERRORS;
-		}
-
-		wmDelete = XInternAtom(display, "WM_DELETE_WINDOW", True);
-		XSetWMProtocols(display, window, &wmDelete, 1);
-
-		if(szWinCaption != NULL)
-			XStoreName(display, window, szWinCaption);
-
-		XMapWindow( display, window );
-		
-		glc = glXCreateContext(display, vi, NULL, GL_TRUE);
-		if(glc == NULL)
-		{
-			fprintf(stderr, "Cannot create OpenGL context\r\n");
-			goto ERRORS;
-		}
-
-	}
-	/* FBconfig supported by video subsystem */
-	else
-	{
-		fbc = glXChooseFBConfig(display, DefaultScreen(display), baseAttr, &iCountFB);
-		if (!fbc)
-		{
-			fprintf(stderr, "Failed to retrieve a framebuffer config\n" );
-			goto ERRORS;
-		}
-		
-		/* Chosen best visual ID from frame buffer object */	
-		for (i=0; i<iCountFB; ++i)
-		{
-			vi = glXGetVisualFromFBConfig( display, fbc[i] );
-			if ( vi )
-			{
-				glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLE_BUFFERS, &iSampBuf );
-				glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLES, &iSamplesNum  );
-
-				if ( iBestFBIndex < 0 || ((iSampBuf > 0) && (iSamplesNum > iBestSamplesNum) ) )
-				{
-					iBestFBIndex = i;
-					iBestSamplesNum = iSamplesNum;
-				}
-				
-
-			}
-			XFree( vi );
-		}
-
-		bestFBConf = fbc[iBestFBIndex];
-
-		XFree( fbc );
-		
-		fprintf( stderr, "Chosen visual ID = 0x%lu, with samples number = %d\n\r", 
-				vi->visualid,  iBestSamplesNum);
-
-		vi = glXGetVisualFromFBConfig( display, bestFBConf );
-		if( vi == NULL )
-		{
-			fprintf(stderr, "Getting visual ID from FBConfig error\r\n");
-			goto ERRORS;
-		}
-		
-		cmap = XCreateColormap(display, rootWindow, vi->visual, AllocNone);
-		if( cmap == 0 )
-		{
-			fprintf(stderr, "Cannot create colormap\r\n");
-			goto ERRORS;
-		}
-
-		swa.colormap = cmap;
-		swa.event_mask = ExposureMask | KeyPressMask | StructureNotifyMask | ButtonPressMask;
-
-		window = XCreateWindow(
-			display,
-			rootWindow,
-			0,
-			0,
-			param->uWidth,
-			param->uHeight,
-			0,
-			vi->depth,
-			InputOutput,
-			vi->visual,
-			CWBackPixmap | CWBorderPixel | CWColormap | CWEventMask,
-			&swa);
-
-		if(window == 0)
-		{
-			fprintf(stderr, "Cannot create window\r\n");
-			goto ERRORS;
-		}
-
-		//XSetStandardProperties(display, window, szWinCaption,
-		//				        szWinCaption, None, NULL, 0, NULL);
-		//XMapRaised(display, window);
-
-		wmDelete = XInternAtom(display, "WM_DELETE_WINDOW", True);
-		XSetWMProtocols(display, window, &wmDelete, 1);
-
-		if(szWinCaption != NULL)
-			XStoreName(display, window, szWinCaption);
-
-		XMapWindow( display, window );
-		
-		glXCreateContextAttribs = (PFNGLXCREATECONTEXTATTRIBSARBPROC)glXGetProcAddress((GLubyte*)"glXCreateContextAttribsARB");
-
-		if (glXCreateContextAttribs == NULL)
-		{
-			fprintf(stderr, "glXCreateContextAttribs is not supported\r\n");
-			goto ERRORS;
-		}
-
-		glc = glXCreateContextAttribs( display, bestFBConf, 0, True, modernAttr );
-		if(glc == NULL)
-		{
-			fprintf(stderr, "Cannot create OpenGL context\r\n");
-			goto ERRORS;
-		}
-
 	}
 	
-	XSync( display, False );
+	cmap = XCreateColormap(display, rootWindow, vi->visual, AllocNone);
+	if( cmap == 0 )
+	{
+		fprintf(stderr, "Cannot create colormap\r\n");
+		goto ERRORS;
+	}
+	
+	swa.colormap = cmap;
+    swa.event_mask = ExposureMask | KeyPressMask | StructureNotifyMask | ButtonPressMask;
 
+	window = XCreateWindow(
+		display,
+		rootWindow,
+		0,
+		0,
+		uWidth,
+		uHeight,
+		0,
+		vi->depth,
+		InputOutput,
+		vi->visual,
+		CWColormap | CWEventMask | CWColormap,
+		&swa);
+
+	if(window == 0)
+	{
+		fprintf(stderr, "Cannot create window\r\n");
+		goto ERRORS;
+	}
+	
+//	XSetStandardProperties(display, window, szWinCaption,
+ //           szWinCaption, None, NULL, 0, NULL);
+ //   XMapRaised(display, window);
+	
+	wmDelete = XInternAtom(display, "WM_DELETE_WINDOW", True);
+	XSetWMProtocols(display, window, &wmDelete, 1);
+
+	if(szWinCaption != NULL)
+		XStoreName(display, window, szWinCaption);
+	
+	XMapWindow( display, window );
+	
+	
+	glc = glXCreateContext(display, vi, NULL, GL_TRUE);
+	if(glc == NULL)
+	{
+		fprintf(stderr, "Cannot create OpenGL context\r\n");
+		goto ERRORS;
+	}
+	
     glXMakeCurrent(display, window, glc);
 	
-	if (!glXIsDirect(display, glc)) 
+	if (glXIsDirect(display, glc)) 
+        fprintf(stderr, "Direct Rendering is supported\n\r");
+    else
         fprintf(stderr, "Direct Rendering is not supported\n\r");
 	
 //	XFlush(display);
 	
 //	XGrabKeyboard(display, window, True, GrabModeAsync, GrabModeAsync, CurrentTime);
-//  XGrabPointer(display, window, True, ButtonPressMask, 
-//	GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
+//    XGrabPointer(display, window, True, ButtonPressMask, 
+//					GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
 	
 	/* Set all flags in first running redraw */
-	redraw_cb(&ws, VIEWPORT_INIT_FLAG | VIEWPORT_RESIZE_FLAG);
+	ws.initFlag = 1;
+	ws.resizeFlag = 1;
+	ws.destroyFlag = 0;
+	redraw_cb(&ws, &mousePos);
 	glXSwapBuffers(display, window);
 	
 	return 1;
@@ -520,128 +358,6 @@ ERRORS:
 	
 	return -1;
 }
-
-
-int32_t cGLXWindow::
-check_gl_extension(const char* szExtName)
-{
-	if(szExtName == NULL || glc == NULL)
-		return -1;
-
-	uint32_t	i;
-	const char	*szExtList = NULL;
-	size_t		uExtListStrLen;
-	uint32_t	uExtNameLen;
-	char		szRecvExtName[64];
-	uint32_t	uStartPos = 0;
-
-	
-	szExtList = (const char*)glGetString(GL_EXTENSIONS);
-	if(szExtList == NULL)
-		return -1;
-	
-	uExtListStrLen = strlen(szExtList);
-	if(uExtListStrLen == 0)
-		return -1;
-	
-	for(i=0; i<uExtListStrLen; i++)
-	{
-		if(szExtList[i] == ' ' || szExtList[i] == '\0')
-		{
-			uExtNameLen = i-uStartPos;
-			/* Buffer overrun protection */
-			if( uExtNameLen >= sizeof(szRecvExtName))
-				uExtNameLen = sizeof(szRecvExtName)-1;
-
-			memcpy(szRecvExtName, &szExtList[uStartPos], uExtNameLen);
-			/* Add zero to end of the string */
-			szRecvExtName[uExtNameLen] = 0;
-
-			if(0 == strcmp(szRecvExtName, szExtName))
-				return 1;
-			
-			uStartPos = i+1;
-		}
-	}
-
-	return 0;
-}
-
-int32_t cGLXWindow::
-get_gl_extensions_string(const char** szExtList)
-{
-	if(szExtList == NULL || glc == NULL )
-		return -1;
-	
-	*szExtList = NULL;
-	*szExtList = (const char*)glGetString(GL_EXTENSIONS);
-	
-	if(*szExtList == NULL)
-		return -1;
-	
-	return 1;
-}
-
-int32_t cGLXWindow::
-check_glx_extension(const char* szExtName)
-{
-	if(szExtName == NULL || display == NULL)
-		return -1;
-
-	uint32_t	i;
-	const char	*szExtList = NULL;
-	size_t		uExtListStrLen;
-	uint32_t	uExtNameLen;
-	char		szRecvExtName[64];
-	uint32_t	uStartPos = 0;
-
-	szExtList = (const char*)glXQueryExtensionsString(display, screen);
-	if(szExtList == NULL)
-		return -1;
-	
-	uExtListStrLen = strlen(szExtList);
-	if(uExtListStrLen == 0)
-		return -1;
-	
-	for(i=0; i<uExtListStrLen; i++)
-	{
-		if(szExtList[i] == ' ' || szExtList[i] == '\0')
-		{
-			uExtNameLen = i-uStartPos;
-			/* Buffer overrun protection */
-			if( uExtNameLen >= sizeof(szRecvExtName))
-				uExtNameLen = sizeof(szRecvExtName)-1;
-
-			memcpy(szRecvExtName, &szExtList[uStartPos], uExtNameLen);
-			/* Add zero to end of the string */
-			szRecvExtName[uExtNameLen] = 0;
-
-			if(0 == strcmp(szRecvExtName, szExtName))
-				return 1;
-			
-			uStartPos = i+1;
-		}
-	}
-
-	return 0;
-}
-
-
-int32_t cGLXWindow::
-get_glx_extensions_string(const char** szExtList)
-{
-	if(szExtList == NULL || display == NULL)
-		return -1;
-	
-	*szExtList = NULL;
-	*szExtList = glXQueryExtensionsString(display, screen);
-	
-	if(*szExtList == NULL)
-		return -1;
-	
-	return 1;
-}
-
 
 /*
  * Get current screen resolution
@@ -875,8 +591,10 @@ update_window(void)
 				if (event.xexpose.count != 0)
 					break;
 
-				redraw_cb(&ws, 0);
-				
+				ws.initFlag = 0;
+				ws.resizeFlag = 0;
+				ws.destroyFlag = 0;
+				redraw_cb(&ws, &mousePos);
 				glXSwapBuffers(display, window);
 			return 1;
 			case ConfigureNotify:
@@ -887,15 +605,17 @@ update_window(void)
 					ws.uWidth = event.xconfigure.width;
 					ws.uHeight = event.xconfigure.height;
 						
-					redraw_cb(&ws, VIEWPORT_RESIZE_FLAG);
-					
+					ws.initFlag = 0;
+					ws.resizeFlag = 1;
+					ws.destroyFlag = 0;
+					redraw_cb(&ws, &mousePos);
 					glXSwapBuffers(display, window);
 				}
 				
 			return 1;
 			case ClientMessage:
-//				if (event.xclient.data.l[0] == wmDelete)
-//					destroy_window();
+				if (event.xclient.data.l[0] == wmDelete)
+					destroy_window();
             return -1;
 			case ButtonPress:
                     
@@ -928,14 +648,17 @@ update_window(void)
 						window, 
 						&returnedWindow,
 						&returnedWindow, 
-						&ws.iMouseRootX, 
-						&ws.iMouseRootY, 
-						&ws.iMouseWinX, 
-						&ws.iMouseWinY,
+						&mousePos.iRootX, 
+						&mousePos.iRootY, 
+						&mousePos.iWinX, 
+						&mousePos.iWinY,
 						&uMask
 					);
 	
-		redraw_cb(&ws, 0);
+		ws.initFlag = 0;
+		ws.resizeFlag = 0;
+		ws.destroyFlag = 0;
+		redraw_cb(&ws, &mousePos);
 		glXSwapBuffers(display, window);
 	}
 	

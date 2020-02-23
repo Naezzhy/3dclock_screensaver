@@ -31,7 +31,6 @@
  */
 
 
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +60,58 @@
 #include "graphic/glxwindow.h"
 
 
+
+
+uint32_t	const	ZERO_OFFSET = '0';
+uint32_t	const	NUM_OF_DIGITS = 10;
+uint32_t	const	FONT_HEIGHT = 128;
+
+uint32_t	const	BITMAP_WIDTH = 256;
+uint32_t	const	BITMAP_HEIGHT = 256;
+
+uint32_t	const	FLAME_WIDTH = 1024;
+uint32_t	const	FLAME_HEIGHT = 512;
+uint32_t	const	FLAME_RATE_MILLIS = 20;
+float		const	FLAME_DEVIDER = 2.97;
+uint32_t	const	RBUFFER_LEN = 5;
+
+float		const	CUBE_ROTATION_SPEED = 0.006;
+
+char		const	FONT_NAME[]="./fonts/Roboto-Bold.ttf";
+char		const	*FRAGMENT_PROGRAM =
+"uniform vec4 color;\n" 
+"void main() {\n" 
+" gl_FragColor = color;\n" 
+"}\n";
+
+
+
+struct	sRenderVariables
+{
+	time_t				rawtime;
+	tm					tminfo;
+	uint32_t			uHour;
+	uint32_t			uMin;
+	uint32_t			uSec;
+	char				cTimeBuff[4];
+	float				fX;
+	int32_t				iStartMousePosX;
+	int32_t				iStartMousePosY;
+	float				fRangeZ;
+	float				fAngleX[3];
+	float				fAngleY[3];
+	GLuint				uFlameTex;
+	GLuint				uTimeTex[3];
+	uint8_t				flameBuff[FLAME_WIDTH*FLAME_HEIGHT*3];
+	size_t				uDataSize;
+	uint64_t			uPrevMillis;
+	uint64_t			uCurrMillis;
+	float				fDelta;
+	GLUquadricObj		*quadrObj;
+	int32_t				iSignY;
+};
+
+
 struct	rgb	
 {
 	uint8_t		r;
@@ -79,27 +130,10 @@ struct	sSymbol
 
 
 
-uint32_t	const	ZERO_OFFSET = '0';
-uint32_t	const	NUM_OF_DIGIT = 10;
-uint32_t	const	FONT_HEIGHT = 128;
-
-uint32_t	const	BITMAP_WIDTH = 256;
-uint32_t	const	BITMAP_HEIGHT = 256;
-
-uint32_t	const	FLAME_WIDTH = 1024;
-uint32_t	const	FLAME_HEIGHT = 512;
-uint32_t	const	FLAME_RATE_MILLIS = 10;
-
-uint32_t	const	IMPOSSIBLE_VAL = 9999;
-float		const	CUBE_ROTATION_SPEED = 0.006;
-
-char		const	FONT_NAME[]="./fonts/Roboto-Bold.ttf";
-
-
-sSymbol				_symbol[NUM_OF_DIGIT];
+sSymbol				_symbol[NUM_OF_DIGITS];
 uint8_t				_appExit = 0;
 cDiscreteRingBuffer	_rb;
-
+sRenderVariables	_rv = {0};
 
 
 
@@ -118,10 +152,9 @@ get_random(void* pBuff, const size_t buffSize)
 
 	close(hFile);
 	return iBytesRead;
-	
 }
 
-int32_t
+inline int32_t
 randval(uint32_t uMaxVal)
 {
 	uint32_t uRandVal;
@@ -131,6 +164,7 @@ randval(uint32_t uMaxVal)
 	return (uint64_t)uRandVal*(uMaxVal+1)/0xffffffff;
 }
 
+
 void* 
 creating_flame_thread(void*)
 {
@@ -138,10 +172,16 @@ creating_flame_thread(void*)
 	uint32_t		i,j;
 	uint8_t			tmp, color;
 	rgb				palit[256] = {0};
-	uint8_t			palBuff [FLAME_WIDTH][FLAME_HEIGHT];
-	rgb				flameBuff [FLAME_WIDTH][FLAME_HEIGHT];
+	uint8_t			palBuff [FLAME_WIDTH*FLAME_HEIGHT];
+	rgb				flameBuff [FLAME_HEIGHT*FLAME_WIDTH];
+	uint8_t			pseudoRandArray[FLAME_WIDTH*FLAME_HEIGHT+1];
+	size_t			uRandIndex = 0;
+	
 	uint64_t		uPrevMillis = get_millisec();
 	uint64_t		uCurrMillis;
+	
+	/* Filling pseudo random array */
+	get_random(pseudoRandArray, sizeof(pseudoRandArray));
 
 	/* Filling flame palit */
 	for(uIndex=0; uIndex<64; uIndex++)
@@ -163,94 +203,77 @@ creating_flame_thread(void*)
 		sleep_millisec(5);
 		
 		uCurrMillis = get_millisec();
-		if(FLAME_RATE_MILLIS >= (uCurrMillis - uPrevMillis))
+		if( FLAME_RATE_MILLIS >= (uCurrMillis - uPrevMillis)
+			|| RBUFFER_LEN <= _rb.get_current_len())
 			continue;
 			
 		uPrevMillis = uCurrMillis;
 		
 		/* Flame seeds */
-		for(i=0; i<FLAME_WIDTH; i+=8)
+		for(i=0; i<FLAME_WIDTH; i+=4)
 		{
-			color = randval(255);
-			for(j=0; j<8; j++)
+			color = pseudoRandArray[uRandIndex++];
+			for(j=0; j<4; j++)
 			{
-				palBuff[i+j][0]=color;
+				palBuff[i+j]=color;
 			}
+			
+			if(uRandIndex >= sizeof(pseudoRandArray) )
+				uRandIndex = 0;
 		}
 		
-		/* One pass flame gen method */
-//		for(i=1; i<FLAME_WIDTH-1; i++)
-//		{
-//			for(j=1; j<FLAME_HEIGHT-1; j++)
-//			{
-//				tmp =( 
-//						palBuff[i-1][j-1] 
-//						+ palBuff[i][j-1]
-//						+ palBuff[i+1][j-1] 
-//						+ palBuff[i][j-1] 
-//					)/3.96;
-//				
-//				if(tmp > 1) 
-//					tmp--; 
-//				else 
-//					tmp=0;
-//				
-//				palBuff[i][j]=tmp;
-//			}
-//		}
-
-		/* Two pass flame gen method */
+		/* Two passes flame generation method */
 		for(i=1; i<FLAME_WIDTH-1; i++)
 		{
-			for(j=1; j<FLAME_HEIGHT-1; j++)
+			for(j=1; j<FLAME_HEIGHT; j++)
 			{
 				tmp =( 
-						palBuff[i-1][j-1] 
-						+ palBuff[i][j-1]
-						+ palBuff[i+1][j-1] 
-					)/2.97;
+						palBuff[(i-1)+(j-1)*FLAME_WIDTH] 
+						+ palBuff[i+(j-1)*FLAME_WIDTH]
+						+ palBuff[(i+1)+(j-1)*FLAME_WIDTH] 
+					)/FLAME_DEVIDER;
 				
 				if(tmp > 1) 
 					tmp--; 
 				else 
 					tmp=0;
 				
-				palBuff[i][j]=tmp;
+				palBuff[i+FLAME_WIDTH*j]=tmp;
 			}
 		}
 		
 		for(i=FLAME_WIDTH-2; i > 1; i--)
 		{
-			for(j=1; j<FLAME_HEIGHT-1; j++)
+			for(j=1; j<FLAME_HEIGHT; j++)
 			{
 				tmp =( 
-						palBuff[i-1][j-1] 
-						+ palBuff[i][j-1]
-						+ palBuff[i+1][j-1] 
-					)/2.97;
+						palBuff[((j-1)*FLAME_WIDTH)+(i-1)] 
+						+ palBuff[((j-1)*FLAME_WIDTH) + i]
+						+ palBuff[((j-1)*FLAME_WIDTH)+(i+1)] 
+					)/FLAME_DEVIDER;
 				
 				if(tmp > 1) 
 					tmp--; 
 				else 
 					tmp=0;
 				
-				palBuff[i][j]=tmp;
+				palBuff[i+FLAME_WIDTH*j]=tmp;
 			}
 		}
-
+		
+		/* Fill rgb array from palit buffer */
 		for(i=0; i<FLAME_WIDTH; i++)
 		{
 			for(j=0; j<FLAME_HEIGHT; j++)
 			{
-				flameBuff[i][j]=palit[palBuff[i][j]];
+				flameBuff[i+j*FLAME_WIDTH]=palit[palBuff[i+j*FLAME_WIDTH]];
 			}
 		}
 		
+		/* Write completed flame array to ring buffer */
 		_rb.write(flameBuff, sizeof(flameBuff) );
 		
 	}
-
-	ERR:
 
 	pthread_exit(NULL);
 }
@@ -290,7 +313,7 @@ create_digits_tex_array( void )
 	
 	gliph = font->glyph;
 	
-	for(uint32_t i = 0; i<NUM_OF_DIGIT; i++)
+	for(uint32_t i = 0; i<NUM_OF_DIGITS; i++)
 	{
 		if(0 != FT_Load_Char(font, i+ZERO_OFFSET, FT_LOAD_RENDER))
 		{
@@ -358,7 +381,7 @@ create_digits_tex_array( void )
 void
 destroy_digits_tex_array(void)
 {
-	for(uint32_t i=0; i<NUM_OF_DIGIT; i++)
+	for(uint32_t i=0; i<NUM_OF_DIGITS; i++)
 	{
 		glDeleteTextures(1, &_symbol[i].texture);
 	}
@@ -427,7 +450,6 @@ draw_time_edge_texture(const char *szTime, GLuint uTex)
 	
 	glViewport(0, 0, BITMAP_WIDTH, BITMAP_HEIGHT);
 	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
 	glLoadIdentity();
 	glOrtho(0, BITMAP_WIDTH, 0, BITMAP_HEIGHT, 0, 20);
 	gluLookAt(0, 0, 1, 0, 0, 0, 0, 1, 0);
@@ -435,7 +457,6 @@ draw_time_edge_texture(const char *szTime, GLuint uTex)
 	glDisable(GL_TEXTURE_RECTANGLE);
 	
 	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
 	glLoadIdentity();
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -547,62 +568,42 @@ draw_time_edge_texture(const char *szTime, GLuint uTex)
 
 /* Redraw window callback */
 void
-redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos)
+redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
 {
-
-	time_t		static	rawtime;
-	tm			static	tminfo;
-	uint32_t	static	uHour = IMPOSSIBLE_VAL;
-	uint32_t	static	uMin = IMPOSSIBLE_VAL;
-	uint32_t	static	uSec = IMPOSSIBLE_VAL;
-	char				cTimeBuff[4] = {0};
-	float		static	fX;
-	int32_t		static	iStartMousePosX = IMPOSSIBLE_VAL;
-	int32_t		static	iStartMousePosY = IMPOSSIBLE_VAL;
-	
-	GLfloat		static	light0Diffuse[] = { 1.0, 1.0, 1.0 };
-	GLfloat		static	light0Ambient[] = { 0.3, 0.3, 0.3 };
-	GLfloat		static	light0Direction[] = { 0.0, 0.0, 1.0, 0.0 };
-		
-	float		static	fRangeZ = -5.5F;
-	float		static	fAngleX[3];
-	float		static	fAngleY[3];
-	float		static	dY[] = {0.2F,0.2f,0.2f};
-	uint32_t	static	uIndex;
-	GLuint		static	uSecTex, uMinTex, uHourTex, uFlameTex;
-	uint8_t		static	flameBuff[FLAME_WIDTH*FLAME_HEIGHT*3];
-	size_t		static	uDataSize;
-	
-	uint64_t		static		uPrevMillis;
-	uint64_t		static		uCurrMillis;
-	float			static		fDelta = 0;
-	GLUquadricObj	static		*quadrObj = NULL;
+	int32_t		i;
+	GLfloat		light0Diffuse[] = { 1.0, 1.0, 1.0 };
+	GLfloat		light0Ambient[] = { 0.3, 0.3, 0.3 };
+	GLfloat		light0Direction[] = { 0.0, 0.0, 1.0, 0.0 };
 
 	/************************ GL initializing *********************************/
-	if (ws->initFlag)
+	if (cGLXWindow::VIEWPORT_INIT_FLAG & stateFlags)
 	{
-		uPrevMillis = get_millisec();
-
+		_rv.uPrevMillis = get_millisec();
+		
 		glEnable(GL_POLYGON_SMOOTH);
+		glEnable(GL_LINE_SMOOTH);
 		glShadeModel(GL_SMOOTH);
 		glEnable(GL_NORMALIZE);
 		glDepthFunc(GL_LEQUAL);
 		glEnable(GL_MULTISAMPLE);
+		
+		glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
+		glHint( GL_POLYGON_SMOOTH_HINT, GL_NICEST );
 
 		glEnable(GL_COLOR_MATERIAL);
 		glEnable(GL_TEXTURE_RECTANGLE);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
 		/* Init sphere objects */
-		quadrObj = gluNewQuadric();
-		gluQuadricDrawStyle(quadrObj,GLU_FILL);
-		gluQuadricNormals(quadrObj, GLU_SMOOTH);
+		_rv.quadrObj = gluNewQuadric();
+		gluQuadricDrawStyle(_rv.quadrObj,GLU_FILL);
+		gluQuadricNormals(_rv.quadrObj, GLU_SMOOTH);
 		
 		/* Getting start random rotation angles for cubes */
-		for(uIndex=0; uIndex<3; uIndex++)
+		for(i=0; i<3; i++)
 		{
-			fAngleY[uIndex]=(float)(randval(60));
-			fAngleX[uIndex]=(float)(randval(360));
+			_rv.fAngleY[i]=(float)(randval(60));
+			_rv.fAngleX[i]=(float)(randval(360));
 		}
 
 		/* Generating textures */
@@ -613,37 +614,142 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 		glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-		glGenTextures(1, &uFlameTex);
-		glGenTextures(1, &uSecTex);
-		glGenTextures(1, &uMinTex);
-		glGenTextures(1, &uHourTex);
+		glGenTextures(1, &_rv.uFlameTex);
+		for(i=0; i<3; i++)
+			glGenTextures(1, &_rv.uTimeTex[i]);
+		
+		/************************* Creating lists of objects **********************/
+		/* Digits cube */
+		glNewList(1, GL_COMPILE);
+			glBegin(GL_QUADS);
+			glNormal3f( 0.0, 0.0, 1.0);
+			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5, 0.5, 0.5);
+			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5, 0.5, 0.5);
+			glTexCoord2f(0,0);							glVertex3f(-0.5,-0.5, 0.5);
+			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5,-0.5, 0.5);
+
+			glNormal3f( 0.0, 0.0,-1.0);
+			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5,-0.5,-0.5);
+			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5, 0.5,-0.5);
+			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5, 0.5,-0.5);
+			glTexCoord2f(0,0);							glVertex3f( 0.5,-0.5,-0.5);
+
+			glNormal3f( 0.0, 1.0, 0.0);
+			glTexCoord2f(0,0);							glVertex3f( 0.5, 0.5, 0.5);
+			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5, 0.5,-0.5);
+			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5, 0.5,-0.5);
+			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5, 0.5, 0.5);
+
+			glNormal3f( 0.0,-1.0, 0.0);
+			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5,-0.5,-0.5);
+			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5,-0.5,-0.5);
+			glTexCoord2f(0,0);							glVertex3f( 0.5,-0.5, 0.5);
+			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5,-0.5, 0.5);
+
+			glNormal3f( 1.0, 0.0, 0.0);
+			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5, 0.5, 0.5);
+			glTexCoord2f(0,0);							glVertex3f( 0.5,-0.5, 0.5);
+			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5,-0.5,-0.5);
+			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5, 0.5,-0.5);
+
+			glNormal3f(-1.0, 0.0, 0.0);
+			glTexCoord2f(0,0);							glVertex3f(-0.5,-0.5,-0.5);
+			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5,-0.5, 0.5);
+			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5, 0.5, 0.5);
+			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5, 0.5,-0.5);
+			glEnd();
+		glEndList();
+
+		/* Flame cube */
+		glNewList(2, GL_COMPILE);
+			glBegin(GL_QUADS);
+			glNormal3f( 0.0, 0.0, 1.0);
+			glNormal3f( 0.0, 0.0, 1.0);
+			glTexCoord2f(FLAME_WIDTH, FLAME_HEIGHT);	glVertex3f( 0.5, 0.5, 0.5);
+			glTexCoord2f(0, FLAME_HEIGHT);				glVertex3f(-0.5, 0.5, 0.5);
+			glTexCoord2f(0, 0);							glVertex3f(-0.5,-0.5, 0.5);
+			glTexCoord2f(FLAME_WIDTH, 0);				glVertex3f( 0.5,-0.5, 0.5);
+
+			glNormal3f( 0.0, 0.0,-1.0);
+			glTexCoord2f(FLAME_WIDTH, 0);				glVertex3f(-0.5,-0.5,-0.5);
+			glTexCoord2f(FLAME_WIDTH, FLAME_HEIGHT);	glVertex3f(-0.5, 0.5,-0.5);
+			glTexCoord2f(0, FLAME_HEIGHT);				glVertex3f( 0.5, 0.5,-0.5);
+			glTexCoord2f(0, 0);							glVertex3f( 0.5,-0.5,-0.5);
+
+			glNormal3f( 0.0, 1.0, 0.0);
+			glTexCoord2f(0, 0);							glVertex3f( 0.5, 0.5, 0.5);
+			glTexCoord2f(FLAME_WIDTH, 0);				glVertex3f( 0.5, 0.5,-0.5);
+			glTexCoord2f(FLAME_WIDTH, FLAME_HEIGHT);	glVertex3f(-0.5, 0.5,-0.5);
+			glTexCoord2f(0, FLAME_HEIGHT);				glVertex3f(-0.5, 0.5, 0.5);
+
+			glNormal3f( 0.0,-1.0, 0.0);
+			glTexCoord2f(FLAME_WIDTH, FLAME_HEIGHT);	glVertex3f(-0.5,-0.5,-0.5);
+			glTexCoord2f(0, FLAME_HEIGHT);				glVertex3f( 0.5,-0.5,-0.5);
+			glTexCoord2f(0, 0);							glVertex3f( 0.5,-0.5, 0.5);
+			glTexCoord2f(FLAME_WIDTH, 0);				glVertex3f(-0.5,-0.5, 0.5);
+
+			glNormal3f( 1.0, 0.0, 0.0);
+			glTexCoord2f(0, FLAME_HEIGHT);				glVertex3f( 0.5, 0.5, 0.5);
+			glTexCoord2f(0, 0);							glVertex3f( 0.5,-0.5, 0.5);
+			glTexCoord2f(FLAME_WIDTH, 0);				glVertex3f( 0.5,-0.5,-0.5);
+			glTexCoord2f(FLAME_WIDTH, FLAME_HEIGHT);	glVertex3f( 0.5, 0.5,-0.5);
+
+			glNormal3f(-1.0, 0.0, 0.0);
+			glTexCoord2f(0, 0);							glVertex3f(-0.5,-0.5,-0.5);
+			glTexCoord2f(FLAME_WIDTH, 0);				glVertex3f(-0.5,-0.5, 0.5);
+			glTexCoord2f(FLAME_WIDTH, FLAME_HEIGHT);	glVertex3f(-0.5, 0.5, 0.5);
+			glTexCoord2f(0, FLAME_HEIGHT);				glVertex3f(-0.5, 0.5,-0.5);
+			glEnd();
+		glEndList();
+
+		/* Spheres */
+		glNewList(3, GL_COMPILE);
+			for(i=-1; i<2; i+=2)
+			{
+				glColor3f(0.4f, 0.2f, 0.2f);
+				glPushMatrix();
+					glNormal3f( 0.0, 0.0, 1.0);
+					glTranslatef(i, 0.2, _rv.fRangeZ);
+					gluSphere(_rv.quadrObj, 0.1, 16, 16);
+				glPopMatrix();
+
+				glPushMatrix();
+					glNormal3f( 0.0, 0.0, 1.0);
+					glTranslatef(i, -0.2, _rv.fRangeZ);
+					gluSphere(_rv.quadrObj, 0.1, 16, 16);
+				glPopMatrix();
+			}
+		glEndList();
 
 		glFlush();
 	}
 	
+
+	
 	/************************* Resizing viewport ******************************/
-	if (ws->resizeFlag)
+	if (cGLXWindow::VIEWPORT_RESIZE_FLAG & stateFlags)
 	{
-		fX = (float)ws->uWidth/(float)ws->uHeight;
+		_rv.fX = (float)ws->uWidth/(float)ws->uHeight;
 	}
 	
 	/************************** Closing window ********************************/
-	if (ws->destroyFlag)
+	if (cGLXWindow::VIEWPORT_DESTROY_FLAG & stateFlags)
 	{
 		destroy_digits_tex_array();
 	}
 	
+	
 	/* Checking mouse cursor position and stop program if it changes */
-	if(mousePos->iRootX > 0 && mousePos->iRootY > 0
-		&& iStartMousePosX == IMPOSSIBLE_VAL && iStartMousePosY == IMPOSSIBLE_VAL)
+	if(ws->iMouseRootX > 0 && ws->iMouseRootY > 0
+		&& _rv.iStartMousePosX == 0xffffffff && _rv.iStartMousePosY == 0xffffffff)
 	{
-		iStartMousePosX = mousePos->iRootX;
-		iStartMousePosY = mousePos->iRootY;
+		_rv.iStartMousePosX = ws->iMouseRootX;
+		_rv.iStartMousePosY = ws->iMouseRootY;
 	}
-	else if((iStartMousePosX != IMPOSSIBLE_VAL || iStartMousePosY != IMPOSSIBLE_VAL)
-			&& ((iStartMousePosX != mousePos->iRootX) || (iStartMousePosY != mousePos->iRootY)) )
+	else if((_rv.iStartMousePosX != 0xffffffff || _rv.iStartMousePosY != 0xffffffff)
+			&& ((_rv.iStartMousePosX != ws->iMouseRootX) || (_rv.iStartMousePosY != ws->iMouseRootY)) )
 	{
-		_appExit = 1;
+//		_appExit = 1;
 	}
 
 	/************************* Render to texture ******************************/
@@ -652,47 +758,52 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 	glEnable(GL_COLOR_MATERIAL);
-	time(&rawtime);
-	localtime_r(&rawtime, &tminfo);
+	time(&_rv.rawtime);
+	localtime_r(&_rv.rawtime, &_rv.tminfo);
 	
 	/* Create framing digits on edges textures */
-	if(uHour != tminfo.tm_hour)
+	if(_rv.uSec != _rv.tminfo.tm_sec)
 	{
-		snprintf(cTimeBuff, sizeof(cTimeBuff), "%0.2d", tminfo.tm_hour);
-		draw_time_edge_texture(cTimeBuff, uHourTex);
-		uHour = tminfo.tm_hour; 
-	}
-	if(uMin != tminfo.tm_min)
-	{
-		snprintf(cTimeBuff, sizeof(cTimeBuff), "%0.2d", tminfo.tm_min);
-		draw_time_edge_texture(cTimeBuff, uMinTex);
-		uMin = tminfo.tm_min; 
-	}
-	if(uSec != tminfo.tm_sec)
-	{
-		snprintf(cTimeBuff, sizeof(cTimeBuff), "%0.2d", tminfo.tm_sec);
-		draw_time_edge_texture(cTimeBuff, uSecTex);
-		uSec = tminfo.tm_sec; 
+		snprintf(_rv.cTimeBuff, sizeof(_rv.cTimeBuff), "%0.2d", _rv.tminfo.tm_sec);
+		draw_time_edge_texture(_rv.cTimeBuff, _rv.uTimeTex[2]);
+		_rv.uSec = _rv.tminfo.tm_sec; 
+		
+		if(_rv.uMin != _rv.tminfo.tm_min)
+		{
+			snprintf(_rv.cTimeBuff, sizeof(_rv.cTimeBuff), "%0.2d", _rv.tminfo.tm_min);
+			draw_time_edge_texture(_rv.cTimeBuff, _rv.uTimeTex[1]);
+			_rv.uMin = _rv.tminfo.tm_min; 
+			
+			if(_rv.uHour != _rv.tminfo.tm_hour)
+			{
+				snprintf(_rv.cTimeBuff, sizeof(_rv.cTimeBuff), "%0.2d", _rv.tminfo.tm_hour);
+				draw_time_edge_texture(_rv.cTimeBuff, _rv.uTimeTex[0]);
+				_rv.uHour = _rv.tminfo.tm_hour; 
+			}
+		}
+		
 	}
 	
+	glFlush();
 
 	/*********************** Render to screen *********************************/
 	/* Rotations calculation */
-	uCurrMillis = get_millisec();
-	fDelta = CUBE_ROTATION_SPEED * float(uCurrMillis - uPrevMillis);
-	uPrevMillis = uCurrMillis;
+	_rv.uCurrMillis = get_millisec();
+	_rv.fDelta = CUBE_ROTATION_SPEED * float(_rv.uCurrMillis - _rv.uPrevMillis);
+//	printf("%ld\r\n", uCurrMillis - uPrevMillis);
+	_rv.uPrevMillis = _rv.uCurrMillis;
 	
-	for(uIndex=0; uIndex<3; uIndex++)
+	for(i=0; i<3; i++)
 	{
-		fAngleX[uIndex] = (float)fAngleX[uIndex] + fDelta;
+		_rv.fAngleX[i] = (float)_rv.fAngleX[i] + _rv.fDelta;
 		
-		if(fAngleX[uIndex] > 360)
-			fAngleX[uIndex]=0;
+		if(_rv.fAngleX[i] > 360)
+			_rv.fAngleX[i]=0;
 
-		fAngleY[uIndex] = fAngleY[uIndex] + dY[uIndex];
+		_rv.fAngleY[i] = _rv.fAngleY[i] + _rv.fDelta*_rv.iSignY;
 		
-		if((fAngleY[uIndex] > 60) || (fAngleY[uIndex] < -60)) 
-			dY[uIndex] = (-1)*dY[uIndex];
+		if((_rv.fAngleY[i] > 60) || (_rv.fAngleY[i] < -60)) 
+			_rv.iSignY *= -1;
 	}
 	
 	glMatrixMode(GL_PROJECTION);
@@ -720,13 +831,13 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
 	/* Drawing flame quad */
-	glBindTexture(GL_TEXTURE_RECTANGLE, uFlameTex);
+	glBindTexture(GL_TEXTURE_RECTANGLE, _rv.uFlameTex);
 	
-	if(1 == _rb.read(flameBuff, sizeof(flameBuff), &uDataSize))
+	/* Getting next flame rgb array from ring buffer */
+	if(1 == _rb.read(_rv.flameBuff, sizeof(_rv.flameBuff), &_rv.uDataSize))
 	{
-//		printf("%d\r\n", uDataSize);
 		glTexImage2D(GL_TEXTURE_RECTANGLE, 0, 3, FLAME_WIDTH, FLAME_HEIGHT, 
-							 0, GL_RGB, GL_UNSIGNED_BYTE, flameBuff);
+							 0, GL_RGB, GL_UNSIGNED_BYTE, _rv.flameBuff);
 	}
 	
 	glDisable(GL_LIGHTING);
@@ -734,12 +845,12 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 	glColor4f(1.0,1.0,1.0,0.9f);
     glPushMatrix();
 		glTranslatef(0.0f, 0.0f, -10.0f);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0f, 0.0f, 1.0f);
-			glTexCoord2f(0.0f, 0.0f);						glVertex3f( -5.0f*fX,  -5.2F,  0.0f);
-			glTexCoord2f(FLAME_WIDTH/2-1, 0.0f);			glVertex3f( -5.0f*fX,   4.0F,  0.0f);
-			glTexCoord2f(FLAME_WIDTH/2-1, FLAME_HEIGHT-1);	glVertex3f(  5.0f*fX,   4.0f,  0.0f);
-			glTexCoord2f(0.0f, FLAME_HEIGHT-1);				glVertex3f(  5.0f*fX,  -5.2f,  0.0f);
+			glBegin(GL_QUADS);
+			glNormal3f( 0.0, 0.0, 1.0);
+			glTexCoord2f(FLAME_WIDTH,			0.0);	glVertex3f(-5.0*_rv.fX,-5.2, 0.0);
+			glTexCoord2f(FLAME_WIDTH,	FLAME_HEIGHT);	glVertex3f(-5.0*_rv.fX, 4.0, 0.0);
+			glTexCoord2f(0.0,			FLAME_HEIGHT);	glVertex3f( 5.0*_rv.fX, 4.0, 0.0);
+			glTexCoord2f(0.0,			0.0);			glVertex3f( 5.0*_rv.fX,-5.2, 0.0);
 			glEnd();
 	glPopMatrix();
 	
@@ -751,308 +862,57 @@ redraw_window(cGLXWindow::sWindowState *ws, cGLXWindow::sXMouseCursPos *mousePos
 
 	glEnable(GL_COLOR_MATERIAL);
 	glLightModelf(GL_LIGHT_MODEL_TWO_SIDE, GL_FALSE);
-			
+	
 	/* Drawing time cubes */
 	glColor4f(1.0f,1.0f,1.0f,1.0f);
-	glPushMatrix();
-		glTranslatef(-2.0F, 0.0F, fRangeZ);
-	    glRotatef(fAngleY[0], 1.0F, 0.0F, 0.0F);
-	    glRotatef(fAngleX[0], 0.0F, 1.0F, 0.0F);
-		glBindTexture(GL_TEXTURE_RECTANGLE, uHourTex);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0F, 0.0F, 0.2F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,0);							glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.0F, 0.0F,-0.2F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F,-0.5F);
-
-			glNormal3f( 0.0F, 0.2F, 0.0F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F, 0.5F);
-
-			glNormal3f( 0.0F,-0.2F, 0.0F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.2F, 0.0F, 0.0F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5F, 0.5F,-0.5F);
-
-			glNormal3f(-0.2F, 0.0F, 0.0F);
-			glTexCoord2f(0,0);							glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F,-0.5F);
-		glEnd();
-	glPopMatrix();
-
-	glPushMatrix();
-		glTranslatef(0.0F, 0.0F, fRangeZ);
-	    glRotatef(fAngleY[1], 1.0F, 0.0F, 0.0F);
-	    glRotatef(fAngleX[1], 0.0F, 1.0F, 0.0F);
-		glBindTexture(GL_TEXTURE_RECTANGLE, uMinTex);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0F, 0.0F, 0.2F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,0);							glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.0F, 0.0F,-0.2F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F,-0.5F);
-
-			glNormal3f( 0.0F, 0.2F, 0.0F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F, 0.5F);
-
-			glNormal3f( 0.0F,-0.2F, 0.0F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.2F, 0.0F, 0.0F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5F, 0.5F,-0.5F);
-
-			glNormal3f(-0.2F, 0.0F, 0.0F);
-			glTexCoord2f(0,0);							glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F,-0.5F);
-		glEnd();
-    glPopMatrix();
-
-    glPushMatrix();
-		glTranslatef(2.0F, 0.0F, fRangeZ);
-		glRotatef(fAngleY[2], 1.0F, 0.0F, 0.0F);
-		glRotatef(fAngleX[2], 0.0F, 1.0F, 0.0F);
-		glBindTexture(GL_TEXTURE_RECTANGLE, uSecTex);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0F, 0.0F, 0.2F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,0);							glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.0F, 0.0F,-0.2F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F,-0.5F);
-
-			glNormal3f( 0.0F, 0.2F, 0.0F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F, 0.5F);
-
-			glNormal3f( 0.0F,-0.2F, 0.0F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.2F, 0.0F, 0.0F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,0);							glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f( 0.5F, 0.5F,-0.5F);
-
-			glNormal3f(-0.2F, 0.0F, 0.0F);
-			glTexCoord2f(0,0);							glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH,0);				glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH,BITMAP_HEIGHT);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(0,BITMAP_HEIGHT);				glVertex3f(-0.5F, 0.5F,-0.5F);
-		glEnd();
-    glPopMatrix();
 	
+	for(i=0; i<3; i++)
+	{
+		glPushMatrix();
+			glTranslatef(i*2-2, 0.0, _rv.fRangeZ);
+			glRotatef(_rv.fAngleY[i], 1.0, 0.0, 0.0);
+			glRotatef(_rv.fAngleX[i], 0.0, 1.0, 0.0);
+			glBindTexture(GL_TEXTURE_RECTANGLE, _rv.uTimeTex[i]);
+			glCallList(1);
+		glPopMatrix();
+	}
+
 	/* Drawing flame reflections on cube edges */
 	/* Getting path of full flame texture */
 	glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_WRAP_S, GL_CLAMP);
 	glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_WRAP_T, GL_CLAMP);
 	
-	glBindTexture(GL_TEXTURE_RECTANGLE, uFlameTex);
-	
-	glColor4f(0.3f, 0.0f, 0.0f, 0.5f);
+	glBindTexture(GL_TEXTURE_RECTANGLE, _rv.uFlameTex);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glMatrixMode(GL_TEXTURE);
 	glPushMatrix();
-		glTranslatef(-2.0F, 0.0F, fRangeZ);
-	    glRotatef(fAngleY[0], 1.0F, 0.0F, 0.0F);
-	    glRotatef(fAngleX[0], 0.0F, 1.0F, 0.0F);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0, 0.0, 1.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.0, 0.0,-1.0);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F,-0.5F);
-
-			glNormal3f( 0.0, 1.0, 0.0F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F, 0.5F);
-
-			glNormal3f( 0.0,-1.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16, BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 1.0, 0.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/8);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F,-0.5F);
-
-			glNormal3f(-1.0, 0.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F,-0.5F);
-		glEnd();
+	glScalef(0.3, 0.7, 1.0);
+	glMatrixMode(GL_MODELVIEW);
+	
+	glColor4f(0.2f, 0.1f, 0.1f, 0.5f);
+	for(i=0; i<3; i++)
+	{
+		glPushMatrix();
+			glTranslatef(i*2-2, 0.0, _rv.fRangeZ);
+			glRotatef(_rv.fAngleY[i], 1.0, 0.0, 0.0);
+			glRotatef(_rv.fAngleX[i], 0.0, 1.0, 0.0);
+			glCallList(2);
+		glPopMatrix();
+	}
+	
+	glMatrixMode(GL_TEXTURE);
 	glPopMatrix();
-
-	glPushMatrix();
-		glTranslatef(0.0F, 0.0F, fRangeZ);
-	    glRotatef(fAngleY[1], 1.0F, 0.0F, 0.0F);
-	    glRotatef(fAngleX[1], 0.0F, 1.0F, 0.0F);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0, 0.0, 1.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.0, 0.0,-1.0);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F,-0.5F);
-
-			glNormal3f( 0.0, 1.0, 0.0F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F, 0.5F);
-
-			glNormal3f( 0.0,-1.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16, BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 1.0, 0.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/8);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F,-0.5F);
-
-			glNormal3f(-1.0, 0.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F,-0.5F);
-		glEnd();
-    glPopMatrix();
-
-    glPushMatrix();
-		glTranslatef(2.0F, 0.0F, fRangeZ);
-		glRotatef(fAngleY[2], 1.0F, 0.0F, 0.0F);
-		glRotatef(fAngleX[2], 0.0F, 1.0F, 0.0F);
-		glBegin(GL_QUADS);
-			glNormal3f( 0.0, 0.0, 1.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 0.0, 0.0,-1.0);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F,-0.5F);
-
-			glNormal3f( 0.0, 1.0, 0.0F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F, 0.5F);
-
-			glNormal3f( 0.0,-1.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16, BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F, 0.5F);
-
-			glNormal3f( 1.0, 0.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/8);	glVertex3f( 0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f( 0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f( 0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8, BITMAP_HEIGHT/16);	glVertex3f( 0.5F, 0.5F,-0.5F);
-
-			glNormal3f(-1.0, 0.0, 0.0);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/8);	glVertex3f(-0.5F,-0.5F,-0.5F);
-			glTexCoord2f(BITMAP_WIDTH/16,BITMAP_HEIGHT/16);	glVertex3f(-0.5F,-0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/16);	glVertex3f(-0.5F, 0.5F, 0.5F);
-			glTexCoord2f(BITMAP_WIDTH/8,BITMAP_HEIGHT/8);	glVertex3f(-0.5F, 0.5F,-0.5F);
-		glEnd();
-    glPopMatrix();
 	
+	glMatrixMode(GL_MODELVIEW);
+
 	/* Drawing spheres between cubes */
     glDisable(GL_TEXTURE_RECTANGLE);
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
 
-    glColor3f(0.4f, 0.2f, 0.2f);
-    glPushMatrix();
-		glNormal3f( 0.0F, 0.0F, 1.0F);
-		glTranslatef(1.0F, 0.2F, fRangeZ);
-		gluSphere(quadrObj,0.1,16,16);
-	glPopMatrix();
+	glCallList(3);
 
-    glPushMatrix();
-		glNormal3f( 0.0F, 0.0F, 1.0F);
-		glTranslatef(1.0F, -0.2F, fRangeZ);
-		gluSphere(quadrObj,0.1,16,16);
-    glPopMatrix();
-
-	glPushMatrix();
-		glNormal3f( 0.0F, 0.0F, 1.0F);
-		glTranslatef(-1.0F, 0.2F, fRangeZ);
-		gluSphere(quadrObj,0.1,16,16);
-    glPopMatrix();
-
-    glPushMatrix();
-       glNormal3f( 0.0F, 0.0F, 1.0F);
-		 glTranslatef(-1.0F, -0.2F, fRangeZ);
-		 gluSphere(quadrObj,0.1,16,16);
-    glPopMatrix();
-	
+		
 	glFlush();
 
 }
@@ -1062,39 +922,56 @@ void events_update(XEvent *event)
 	switch (event->type)
 	{
 		case ButtonPress:
-			_appExit = 1;
-		return;
 		case KeyPress:
 			_appExit = 1;
 		return;
 	}
 }
 
+
+void init_render_variables(sRenderVariables	*rv)
+{
+
+	rv->uHour = 0xffffffff;
+	rv->uMin = 0xffffffff;
+	rv->uSec = 0xffffffff;
+	rv->iStartMousePosX = 0xffffffff;
+	rv->iStartMousePosY = 0xffffffff;
+	rv->fRangeZ = -5.5F;
+	rv->iSignY = 1;
+}
+
+
 /*
  * 
  */
 int main(int argc, char** argv)
 {
-	cGLXWindow				window;
-	pthread_attr_t			ptAttr;
-	pthread_t				ptFlame = 0;
+	cGLXWindow					window;
+	cGLXWindow::sWinGLXParam	param;
+	pthread_attr_t				ptAttr;
+	pthread_t					ptFlame = 0;
+	const char					*szExtList = NULL;
 	
-	_rb.create(FLAME_WIDTH*FLAME_HEIGHT*3, 8);
+	param.callback_redraw = redraw_window;
+	param.callback_event = events_update;
+	param.uWidth = 800;
+	param.uHeight = 600;
+	param.iMajorGLVer = 2;
+	param.iMinorGLVer = 1;
+	
+	_rb.create(FLAME_WIDTH*FLAME_HEIGHT*3, RBUFFER_LEN);
+	
+	init_render_variables(&_rv);
 
-	window.create_window(800, 600, "3dclock", redraw_window);
-	window.init_events_callback(events_update);
-
-	window.hide_cursor();
-	window.set_window_fullscreen_popup();
+	window.create_window(&param, "3dclock");
 	
 	pthread_attr_init(&ptAttr);
-	pthread_attr_setscope(&ptAttr, PTHREAD_SCOPE_PROCESS);
-	
 	pthread_create(&ptFlame, &ptAttr, creating_flame_thread, NULL);
 
 	while (0 < window.update_window() && _appExit == 0)
 	{
-		sleep_millisec(1);
+		sleep_millisec(5);
 	}
 	
 	window.destroy_window();
