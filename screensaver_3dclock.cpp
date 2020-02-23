@@ -170,12 +170,12 @@ creating_flame_thread(void*)
 {
 	uint32_t		uIndex;
 	uint32_t		i,j;
-	uint8_t		tmp, color;
-	rgb		palit[256] = {0};
-	uint8_t		palBuff [FLAME_WIDTH*FLAME_HEIGHT];
-	rgb		flameBuff [FLAME_HEIGHT*FLAME_WIDTH];
-	uint8_t		pseudoRandArray[FLAME_WIDTH*FLAME_HEIGHT+1];
-	size_t		uRandIndex = 0;
+	uint8_t			tmp, color;
+	rgb				palit[256] = {0};
+	uint8_t			palBuff [FLAME_WIDTH*FLAME_HEIGHT];
+	rgb				flameBuff [FLAME_HEIGHT*FLAME_WIDTH];
+	uint8_t			pseudoRandArray[FLAME_WIDTH*FLAME_HEIGHT+1];
+	size_t			uRandIndex = 0;
 	
 	uint64_t		uPrevMillis = get_millisec();
 	uint64_t		uCurrMillis;
@@ -749,7 +749,7 @@ redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
 	else if((_rv.iStartMousePosX != 0xffffffff || _rv.iStartMousePosY != 0xffffffff)
 			&& ((_rv.iStartMousePosX != ws->iMouseRootX) || (_rv.iStartMousePosY != ws->iMouseRootY)) )
 	{
-//		_appExit = 1;
+		_appExit = 1;
 	}
 
 	/************************* Render to texture ******************************/
@@ -965,6 +965,9 @@ int main(int argc, char** argv)
 	init_render_variables(&_rv);
 
 	window.create_window(&param, "3dclock");
+	
+	window.set_window_fullscreen_popup();
+	window.hide_cursor();
 	
 	pthread_attr_init(&ptAttr);
 	pthread_create(&ptFlame, &ptAttr, creating_flame_thread, NULL);
