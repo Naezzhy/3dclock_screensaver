@@ -74,6 +74,7 @@ uint32_t	const	FLAME_HEIGHT = 512;
 uint32_t	const	FLAME_RATE_MILLIS = 20;
 float		const	FLAME_DEVIDER = 2.97;
 uint32_t	const	RBUFFER_LEN = 5;
+uint32_t	const	FLAME_SEED_LEN = 8;		//must be power of two
 
 float		const	CUBE_ROTATION_SPEED = 0.006;
 
@@ -205,10 +206,10 @@ creating_flame_thread(void*)
 		uPrevMillis = uCurrMillis;
 		
 		/* Flame seeds */
-		for(i=0; i<FLAME_WIDTH; i+=4)
+		for(i=0; i<FLAME_WIDTH; i+=FLAME_SEED_LEN)
 		{
 			color = pseudoRandArray[uRandIndex++];
-			for(j=0; j<4; j++)
+			for(j=0; j<FLAME_SEED_LEN; j++)
 			{
 				palBuff[i+j]=color;
 			}
@@ -438,11 +439,6 @@ draw_gliph_quads(const char *szTxt)
 void
 draw_time_edge_texture(const char *szTime, GLuint uTex)
 {
-	uint32_t	const	uBorderWidth = 12;
-	uint32_t	const	uLineWidth = 2;
-	uint32_t	const	uCathet = 50;
-	float		const	fLineConst = 0.7;
-	
 	glViewport(0, 0, BITMAP_WIDTH, BITMAP_HEIGHT);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -459,97 +455,10 @@ draw_time_edge_texture(const char *szTime, GLuint uTex)
 	glEnable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
 	
-	/*************** Drawing base cube edge texture background ****************/
-	/* Background quad */
-	glColor4f(0.0, 0.1, 0.1, 0.9f);
-	glBegin(GL_QUADS);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( 0, 0, 1); 
-		glVertex3f( BITMAP_WIDTH-1, 0, 1);
-		glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
-		glVertex3f( 0, BITMAP_HEIGHT-1, 1);
-	glEnd();
-	
-	/* Borders */
-	glColor4f(0.1, 0.1, 1.0, 0.9f);
-	/* Bottom */
-	glBegin(GL_QUADS);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( 0, 0, 1); 
-		glVertex3f( BITMAP_WIDTH-1, 0, 1);
-		glVertex3f( BITMAP_WIDTH-1, uBorderWidth, 1);
-		glVertex3f( 0, uBorderWidth, 1);
-	glEnd();
-	/* left */
-	glBegin(GL_QUADS);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( 0, 0, 1); 
-		glVertex3f( uBorderWidth, 0, 1);
-		glVertex3f( uBorderWidth, BITMAP_HEIGHT-1, 1);
-		glVertex3f( 0, BITMAP_HEIGHT-1, 1);
-	glEnd();		
-	/* Right */
-	glBegin(GL_QUADS);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( BITMAP_WIDTH-1-uBorderWidth, 0, 1); 
-		glVertex3f( BITMAP_WIDTH-1, 0, 1);
-		glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
-		glVertex3f( BITMAP_WIDTH-1-uBorderWidth, BITMAP_HEIGHT-1, 1);
-	glEnd();	
-	/* Top */
-	glBegin(GL_QUADS);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( 0, BITMAP_HEIGHT-1, 1); 
-		glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
-		glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1-uBorderWidth, 1);
-		glVertex3f( 0, BITMAP_HEIGHT-1-uBorderWidth, 1);
-	glEnd();
-	
-	/* Triangles */
-	/* Bottom-left */
-	glBegin(GL_TRIANGLES);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( 0, 0, 1);
-		glVertex3f( uCathet, 0, 1);
-		glVertex3f( 0, uCathet, 1);
-	glEnd();
-	/* Bottom-right */
-	glBegin(GL_TRIANGLES);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( BITMAP_WIDTH-1, 0, 1);
-		glVertex3f( BITMAP_WIDTH-1-uCathet, 0, 1);
-		glVertex3f( BITMAP_WIDTH-1, uCathet, 1);
-	glEnd();
-	/* Top-left */
-	glBegin(GL_TRIANGLES);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( 0, BITMAP_HEIGHT-1, 1);
-		glVertex3f( uCathet, BITMAP_HEIGHT-1, 1);
-		glVertex3f( 0, BITMAP_HEIGHT-1-uCathet, 1);
-	glEnd();
-	/* Top-right */
-	glBegin(GL_TRIANGLES);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
-		glVertex3f( BITMAP_WIDTH-1-uCathet, BITMAP_HEIGHT-1, 1);
-		glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1-uCathet, 1);
-	glEnd();
-	
-	/* Lines */
-	glLineWidth(uLineWidth);
-	glColor4f(1.0, 0.90, 0.1, 0.7f);
-	glBegin(GL_LINE_LOOP);
-		glNormal3f( 0.0f, 0.0f, 1.0f);
-		glVertex3f( uCathet*fLineConst, uBorderWidth, 1);
-		glVertex3f( BITMAP_WIDTH-1-uCathet*fLineConst, uBorderWidth, 1);
-		glVertex3f( BITMAP_WIDTH-1-uBorderWidth, uCathet*fLineConst, 1);
-		glVertex3f( BITMAP_WIDTH-1-uBorderWidth, BITMAP_HEIGHT-1-uCathet*fLineConst, 1);
-		glVertex3f( BITMAP_WIDTH-1-uCathet*fLineConst, BITMAP_HEIGHT-1-uBorderWidth, 1);
-		glVertex3f( uCathet*fLineConst, BITMAP_HEIGHT-1-uBorderWidth, 1);
-		glVertex3f( uBorderWidth, BITMAP_HEIGHT-1-uCathet*fLineConst, 1);
-		glVertex3f( uBorderWidth, uCathet*fLineConst, 1);
-	glEnd();
-	
+	/* Drawing base cube edge texture background */
+	glCallList(4);
+
+	/* Drawing digits */
 	glColor4f(1.0f, 1.0f, 1.0f, 0.9f);
 	
 	draw_gliph_quads(szTime);
@@ -560,61 +469,16 @@ draw_time_edge_texture(const char *szTime, GLuint uTex)
 	
 }
 
-
-/* Redraw window callback */
-void
-redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
+void 
+create_objects_lists(void)
 {
-	int32_t		i;
-	GLfloat		light0Diffuse[] = { 1.0, 1.0, 1.0 };
-	GLfloat		light0Ambient[] = { 0.3, 0.3, 0.3 };
-	GLfloat		light0Direction[] = { 0.0, 0.0, 1.0, 0.0 };
-
-	/************************ GL initializing *********************************/
-	if (cGLXWindow::VIEWPORT_INIT_FLAG & stateFlags)
-	{
-		_rv.uPrevMillis = get_millisec();
-		
-		glEnable(GL_POLYGON_SMOOTH);
-		glEnable(GL_LINE_SMOOTH);
-		glShadeModel(GL_SMOOTH);
-		glEnable(GL_NORMALIZE);
-		glDepthFunc(GL_LEQUAL);
-		glEnable(GL_MULTISAMPLE);
-		
-		glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
-		glHint( GL_POLYGON_SMOOTH_HINT, GL_NICEST );
-
-		glEnable(GL_COLOR_MATERIAL);
-		glEnable(GL_TEXTURE_RECTANGLE);
-		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-		/* Init sphere objects */
-		_rv.quadrObj = gluNewQuadric();
-		gluQuadricDrawStyle(_rv.quadrObj,GLU_FILL);
-		gluQuadricNormals(_rv.quadrObj, GLU_SMOOTH);
-		
-		/* Getting start random rotation angles for cubes */
-		for(i=0; i<3; i++)
-		{
-			_rv.fAngleY[i]=(float)(randval(60));
-			_rv.fAngleX[i]=(float)(randval(360));
-		}
-
-		/* Generating textures */
-		create_digits_tex_array();
-
-		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-
-		glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		glGenTextures(1, &_rv.uFlameTex);
-		for(i=0; i<3; i++)
-			glGenTextures(1, &_rv.uTimeTex[i]);
-		
-		/************************* Creating lists of objects **********************/
-		/* Digits cube */
+	uint32_t	const	uBorderWidth = 12;
+	uint32_t	const	uLineWidth = 2;
+	uint32_t	const	uCathet = 50;
+	float		const	fLineConst = 0.7;
+	int32_t				i;
+	
+	/* Digits cube */
 		glNewList(1, GL_COMPILE);
 			glBegin(GL_QUADS);
 			glNormal3f( 0.0, 0.0, 1.0);
@@ -701,25 +565,173 @@ redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
 		glNewList(3, GL_COMPILE);
 			for(i=-1; i<2; i+=2)
 			{
-				glColor3f(0.4f, 0.2f, 0.2f);
 				glPushMatrix();
 					glNormal3f( 0.0, 0.0, 1.0);
 					glTranslatef(i, 0.2, _rv.fRangeZ);
-					gluSphere(_rv.quadrObj, 0.1, 16, 16);
+					gluSphere(_rv.quadrObj, 0.1, 16, 8);
 				glPopMatrix();
 
 				glPushMatrix();
 					glNormal3f( 0.0, 0.0, 1.0);
 					glTranslatef(i, -0.2, _rv.fRangeZ);
-					gluSphere(_rv.quadrObj, 0.1, 16, 16);
+					gluSphere(_rv.quadrObj, 0.1, 16, 8);
 				glPopMatrix();
 			}
 		glEndList();
 
+		/* Edge frame figures */
+		glNewList(4, GL_COMPILE);
+
+		/* Background quad */
+		glColor4f(0.0, 0.1, 0.1, 0.9f);
+		glBegin(GL_QUADS);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( 0, 0, 1); 
+			glVertex3f( BITMAP_WIDTH-1, 0, 1);
+			glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
+			glVertex3f( 0, BITMAP_HEIGHT-1, 1);
+		glEnd();
+
+		/* Borders */
+		glColor4f(0.1, 0.1, 1.0, 0.9f);
+		/* Bottom */
+		glBegin(GL_QUADS);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( 0, 0, 1); 
+			glVertex3f( BITMAP_WIDTH-1, 0, 1);
+			glVertex3f( BITMAP_WIDTH-1, uBorderWidth, 1);
+			glVertex3f( 0, uBorderWidth, 1);
+		glEnd();
+		/* left */
+		glBegin(GL_QUADS);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( 0, 0, 1); 
+			glVertex3f( uBorderWidth, 0, 1);
+			glVertex3f( uBorderWidth, BITMAP_HEIGHT-1, 1);
+			glVertex3f( 0, BITMAP_HEIGHT-1, 1);
+		glEnd();		
+		/* Right */
+		glBegin(GL_QUADS);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( BITMAP_WIDTH-1-uBorderWidth, 0, 1); 
+			glVertex3f( BITMAP_WIDTH-1, 0, 1);
+			glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
+			glVertex3f( BITMAP_WIDTH-1-uBorderWidth, BITMAP_HEIGHT-1, 1);
+		glEnd();	
+		/* Top */
+		glBegin(GL_QUADS);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( 0, BITMAP_HEIGHT-1, 1); 
+			glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
+			glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1-uBorderWidth, 1);
+			glVertex3f( 0, BITMAP_HEIGHT-1-uBorderWidth, 1);
+		glEnd();
+
+		/* Triangles */
+		/* Bottom-left */
+		glBegin(GL_TRIANGLES);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( 0, 0, 1);
+			glVertex3f( uCathet, 0, 1);
+			glVertex3f( 0, uCathet, 1);
+		glEnd();
+		/* Bottom-right */
+		glBegin(GL_TRIANGLES);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( BITMAP_WIDTH-1, 0, 1);
+			glVertex3f( BITMAP_WIDTH-1-uCathet, 0, 1);
+			glVertex3f( BITMAP_WIDTH-1, uCathet, 1);
+		glEnd();
+		/* Top-left */
+		glBegin(GL_TRIANGLES);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( 0, BITMAP_HEIGHT-1, 1);
+			glVertex3f( uCathet, BITMAP_HEIGHT-1, 1);
+			glVertex3f( 0, BITMAP_HEIGHT-1-uCathet, 1);
+		glEnd();
+		/* Top-right */
+		glBegin(GL_TRIANGLES);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1, 1);
+			glVertex3f( BITMAP_WIDTH-1-uCathet, BITMAP_HEIGHT-1, 1);
+			glVertex3f( BITMAP_WIDTH-1, BITMAP_HEIGHT-1-uCathet, 1);
+		glEnd();
+
+		/* Lines */
+		glLineWidth(uLineWidth);
+		glColor4f(1.0, 0.90, 0.1, 0.7f);
+		glBegin(GL_LINE_LOOP);
+			glNormal3f( 0.0f, 0.0f, 1.0f);
+			glVertex3f( uCathet*fLineConst, uBorderWidth, 1);
+			glVertex3f( BITMAP_WIDTH-1-uCathet*fLineConst, uBorderWidth, 1);
+			glVertex3f( BITMAP_WIDTH-1-uBorderWidth, uCathet*fLineConst, 1);
+			glVertex3f( BITMAP_WIDTH-1-uBorderWidth, BITMAP_HEIGHT-1-uCathet*fLineConst, 1);
+			glVertex3f( BITMAP_WIDTH-1-uCathet*fLineConst, BITMAP_HEIGHT-1-uBorderWidth, 1);
+			glVertex3f( uCathet*fLineConst, BITMAP_HEIGHT-1-uBorderWidth, 1);
+			glVertex3f( uBorderWidth, BITMAP_HEIGHT-1-uCathet*fLineConst, 1);
+			glVertex3f( uBorderWidth, uCathet*fLineConst, 1);
+		glEnd();
+		glEndList();
+}
+
+/* Redraw window callback */
+void
+redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
+{
+	int32_t				i;
+	GLfloat		const	light0Diffuse[] = { 1.0, 1.0, 1.0 };
+	GLfloat		const	light0Ambient[] = { 0.3, 0.3, 0.3 };
+	GLfloat		const	light0Direction[] = { 0.0, 0.0, 1.0, 0.0 };
+
+	/************************ GL initializing *********************************/
+	if (cGLXWindow::VIEWPORT_INIT_FLAG & stateFlags)
+	{
+		_rv.uPrevMillis = get_millisec();
+		
+		glEnable(GL_POLYGON_SMOOTH);
+		glEnable(GL_LINE_SMOOTH);
+		glShadeModel(GL_SMOOTH);
+		glEnable(GL_NORMALIZE);
+		glDepthFunc(GL_LEQUAL);
+		glEnable(GL_MULTISAMPLE);
+		
+		glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
+		glHint( GL_POLYGON_SMOOTH_HINT, GL_NICEST );
+
+		glEnable(GL_COLOR_MATERIAL);
+		glEnable(GL_TEXTURE_RECTANGLE);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+		/* Init sphere objects */
+		_rv.quadrObj = gluNewQuadric();
+		gluQuadricDrawStyle(_rv.quadrObj,GLU_FILL);
+		gluQuadricNormals(_rv.quadrObj, GLU_SMOOTH);
+        gluQuadricTexture(_rv.quadrObj, GL_TRUE);
+		
+		/* Getting start random rotation angles for cubes */
+		for(i=0; i<3; i++)
+		{
+			_rv.fAngleY[i]=(float)(randval(60));
+			_rv.fAngleX[i]=(float)(randval(360));
+		}
+
+		/* Generating textures */
+		create_digits_tex_array();
+
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+		glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameterf(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		glGenTextures(1, &_rv.uFlameTex);
+		for(i=0; i<3; i++)
+			glGenTextures(1, &_rv.uTimeTex[i]);
+		
+		/************************* Creating lists of objects **********************/
+		create_objects_lists();
+		
 		glFlush();
 	}
-	
-
 	
 	/************************* Resizing viewport ******************************/
 	if (cGLXWindow::VIEWPORT_RESIZE_FLAG & stateFlags)
@@ -905,8 +917,8 @@ redraw_window(cGLXWindow::sWindowState *ws, uint32_t stateFlags)
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
 
+    glColor3f(0.8f, 0.4f, 0.4f);
 	glCallList(3);
-
 		
 	glFlush();
 
@@ -946,7 +958,6 @@ int main(int argc, char** argv)
 	cGLXWindow::sWinGLXParam	param;
 	pthread_attr_t				ptAttr;
 	pthread_t					ptFlame = 0;
-	const char					*szExtList = NULL;
 	
 	param.callback_redraw = redraw_window;
 	param.callback_event = events_update;
